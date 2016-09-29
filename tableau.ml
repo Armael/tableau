@@ -1,4 +1,5 @@
 open! Batteries
+module List = struct include List include List.Exceptionless end
 
 (*
   prenom, nom, <liste des passages : note, commentaire>
@@ -38,14 +39,15 @@ let load_eleves () : eleve list =
 let write_eleves eleves =
   Csv.save ~separator file (List.map line_of_eleve eleves)
 
-let () = Random.self_init ()
-
 let pick abs eleves =
+  let open Option.Infix in
   List.filter (neg (flip List.mem abs)) eleves
   |> List.group (fun e1 e2 -> compare (List.length e1.passages) (List.length e2.passages))
   |> List.hd
-  |> List.enum |> Random.shuffle |> Array.to_list
-  |> List.hd
+  >>= (List.enum
+       %> Random.shuffle
+       %> Array.to_list
+       %> List.hd)
 
 let rec ask_yesno msg =
   Printf.printf (msg ^^ " [y/n]%!");
@@ -66,6 +68,11 @@ let add_passage eleve =
   let com = read_line () in
   { eleve with passages = (note, com) :: eleve.passages }
 
+let max_passages eleves =
+  List.fold_left
+    (fun mx eleve -> max mx (List.length eleve.passages))
+    0 eleves
+
 let update_eleves eleves eleve =
   List.map (fun eleve' ->
       if eleve'.prenom = eleve.prenom && eleve'.nom = eleve.nom then eleve
@@ -74,15 +81,22 @@ let update_eleves eleves eleve =
 
 let main () =
   let rec loop eleves abs =
-    let eleve = pick abs eleves in
-    Printf.printf "-> %s %s\n%!" eleve.prenom eleve.nom;
-    if ask_yesno "présent ?" then
-      let eleves' = update_eleves eleves (add_passage eleve) in
-      write_eleves eleves';
-      loop eleves' abs
-    else
-      loop eleves (eleve :: abs)
+    match pick abs eleves with
+    | None -> ()
+    | Some eleve ->
+      Printf.printf "-> %s %s\n%!" eleve.prenom eleve.nom;
+      if ask_yesno "présent ?" then (
+        let eleves' = update_eleves eleves (add_passage eleve) in
+        write_eleves eleves';
+        loop eleves' abs)
+      else (
+        Printf.printf "%i passage(s) sur %i\n%!"
+          (List.length eleve.passages)
+          (max_passages eleves);
+        loop eleves (eleve :: abs))
   in
   loop (load_eleves ()) []
 
-let () = main()
+let () =
+  Random.self_init ();
+  main()
